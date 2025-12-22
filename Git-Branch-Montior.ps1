@@ -212,6 +212,89 @@ function Start-GitMonitor {
         $repoKey = "$($repo.provider):$($repo.name):$($repo.branch)"
         Write-Log "檢查 $repoKey"
         
+        # 處理本地 Git repository
+        if ($repo.localPath) {
+            $localPath = $repo.localPath
+            Write-Log "本地路徑: $localPath"
+            
+            # 檢查本地路徑是否已有 git repository
+            if (-not (Test-Path "$localPath\.git")) {
+                Write-Log "本地 repository 不存在，開始 clone..." "INFO"
+                
+                # 建構 clone URL
+                $cloneUrl = ""
+                switch ($repo.provider) {
+                    "github" {
+                        if ($repo.token) {
+                            $cloneUrl = "https://$($repo.token)@github.com/$($repo.owner)/$($repo.name).git"
+                        } else {
+                            $cloneUrl = "https://github.com/$($repo.owner)/$($repo.name).git"
+                        }
+                    }
+                    "bitbucket" {
+                        if ($repo.token) {
+                            $cloneUrl = "https://x-token-auth:$($repo.token)@bitbucket.org/$($repo.workspace)/$($repo.name).git"
+                        } else {
+                            $cloneUrl = "https://bitbucket.org/$($repo.workspace)/$($repo.name).git"
+                        }
+                    }
+                }
+                
+                if ($cloneUrl) {
+                    try {
+                        # 確保父目錄存在
+                        $parentPath = Split-Path -Parent $localPath
+                        if (-not (Test-Path $parentPath)) {
+                            New-Item -ItemType Directory -Path $parentPath -Force | Out-Null
+                        }
+                        
+                        Write-Log "執行: git clone $cloneUrl $localPath"
+                        $cloneOutput = git clone $cloneUrl $localPath 2>&1
+                        if ($LASTEXITCODE -eq 0) {
+                            Write-Log "Clone 成功" "INFO"
+                        } else {
+                            Write-Log "Clone 失敗: $cloneOutput" "ERROR"
+                            continue
+                        }
+                    }
+                    catch {
+                        Write-Log "Clone 發生錯誤: $_" "ERROR"
+                        continue
+                    }
+                }
+            }
+            
+            # 切換到本地路徑並 switch 分支
+            if (Test-Path "$localPath\.git") {
+                try {
+                    Push-Location $localPath
+                    
+                    # 取得當前分支
+                    $currentBranch = git branch --show-current 2>&1
+                    Write-Log "當前分支: $currentBranch"
+                    
+                    # Switch 到監控的分支
+                    if ($currentBranch -ne $repo.branch) {
+                        Write-Log "切換到分支: $($repo.branch)"
+                        $switchOutput = git switch $repo.branch 2>&1
+                        if ($LASTEXITCODE -ne 0) {
+                            Write-Log "切換分支失敗，嘗試建立新分支: $switchOutput" "WARN"
+                            $switchOutput = git switch -c $repo.branch "origin/$($repo.branch)" 2>&1
+                            if ($LASTEXITCODE -ne 0) {
+                                Write-Log "建立分支失敗: $switchOutput" "ERROR"
+                            }
+                        }
+                    }
+                }
+                catch {
+                    Write-Log "Git 操作發生錯誤: $_" "ERROR"
+                }
+                finally {
+                    Pop-Location
+                }
+            }
+        }
+        
         # 取得最新 commit
         $result = $null
         switch ($repo.provider) {
@@ -257,19 +340,41 @@ function Start-GitMonitor {
             Write-Log "無新版本 (當前: $currentCommitSha)" "INFO"
         }
 
-        if ($shouldRunAction -and $repo.actions -and -not $TestMode) {
-            foreach ($action in $repo.actions) {
+        if ($shouldRunAction) {
+            # 如果有新版本且設定了本地路徑，執行 git pull
+            if ($repo.localPath -and (Test-Path "$($repo.localPath)\.git")) {
                 try {
-                    Invoke-CustomAction -ActionType $action.type -ActionCommand $action.command `
-                        -RepoInfo @{
-                            Name = $repo.name
-                            Branch = $repo.branch
-                            Provider = $repo.provider
-                        } `
-                        -CommitInfo $result
+                    Write-Log "執行 git pull 更新到最新版本"
+                    Push-Location $repo.localPath
+                    $pullOutput = git pull 2>&1
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Log "Git pull 成功: $pullOutput" "INFO"
+                    } else {
+                        Write-Log "Git pull 失敗: $pullOutput" "ERROR"
+                    }
+                    Pop-Location
                 }
                 catch {
-                    Write-Log "執行動作時發生錯誤: $_" "ERROR"
+                    Write-Log "Git pull 發生錯誤: $_" "ERROR"
+                    Pop-Location
+                }
+            }
+            
+            # 執行自訂動作
+            if ($repo.actions -and -not $TestMode) {
+                foreach ($action in $repo.actions) {
+                    try {
+                        Invoke-CustomAction -ActionType $action.type -ActionCommand $action.command `
+                            -RepoInfo @{
+                                Name = $repo.name
+                                Branch = $repo.branch
+                                Provider = $repo.provider
+                            } `
+                            -CommitInfo $result
+                    }
+                    catch {
+                        Write-Log "執行動作時發生錯誤: $_" "ERROR"
+                    }
                 }
             }
         }
