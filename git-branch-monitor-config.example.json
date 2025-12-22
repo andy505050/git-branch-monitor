@@ -1,0 +1,34 @@
+{
+  "repositories": [
+    {
+      "provider": "github",
+      "owner": "your-github-username",
+      "name": "your-repo-name",
+      "branch": "main",
+      "token": "ghp_your_github_personal_access_token",
+      "actions": [
+        {
+          "type": "command",
+          "command": "Write-Host '檢測到新版本! Repo: ${REPO_NAME}, Branch: ${BRANCH}, Commit: ${COMMIT_SHA}'"
+        }
+      ]
+    },
+    {
+      "provider": "bitbucket",
+      "workspace": "your-workspace",
+      "name": "your-repo-name",
+      "branch": "develop",
+      "token": "your-bitbucket-repo-token",
+      "actions": [
+        {
+          "type": "webhook",
+          "command": "https://your-webhook-url.com/notify"
+        },
+        {
+          "type": "script",
+          "command": "C:\\Path\\To\\Your\\deploy-script.ps1"
+        }
+      ]
+    }
+  ]
+}
