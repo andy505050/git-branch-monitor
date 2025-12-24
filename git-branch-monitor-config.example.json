@@ -6,6 +6,7 @@
       "name": "your-repo-name",
       "branch": "main",
       "token": "ghp_your_github_personal_access_token",
+      "notificationUrl": "https://ntfy.sh/your-topic-name",
       "actions": [
         {
           "type": "command",

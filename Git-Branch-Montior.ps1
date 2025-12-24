@@ -148,6 +148,54 @@ function Get-BitbucketLatestCommit {
     }
 }
 
+# 發送通知
+function Send-Notification {
+    param(
+        [string]$NotificationUrl,
+        [string]$Title,
+        [string]$Message,
+        [string]$Priority = "default",
+        [string[]]$Tags = @()
+    )
+    
+    if (-not $NotificationUrl) {
+        return
+    }
+    
+    try {
+        Write-Log "發送通知: $Title"
+        
+        # ntfy.sh 支援在 Body 第一行為標題，使用分隔符號分開
+        $fullMessage = $Title
+        if ($Message) {
+            $fullMessage += "`n`n" + $Message
+        }
+        
+        $headers = @{
+            "Priority" = $Priority
+        }
+        
+        # 添加標籤
+        if ($Tags.Count -gt 0) {
+            $headers["Tags"] = ($Tags -join ",")
+        }
+        
+        $Request = @{
+            Method = "POST"
+            Uri = $NotificationUrl
+            Headers = $headers
+            Body = $fullMessage
+            ContentType = "text/plain; charset=utf-8"
+        }
+        
+        Invoke-RestMethod @Request | Out-Null
+        Write-Log "通知發送成功" "DEBUG"
+    }
+    catch {
+        Write-Log "發送通知失敗: $_" "ERROR"
+    }
+}
+
 # 執行自訂動作
 function Invoke-CustomAction {
     param(
@@ -367,6 +415,8 @@ function Start-GitMonitor {
             }
             
             # 執行自訂動作
+            $actionSuccess = $true
+            $actionErrors = @()
             if ($repo.actions -and -not $TestMode) {
                 foreach ($action in $repo.actions) {
                     try {
@@ -379,8 +429,24 @@ function Start-GitMonitor {
                             -CommitInfo $result
                     }
                     catch {
-                        Write-Log "執行動作時發生錯誤: $_" "ERROR"
+                        $actionSuccess = $false
+                        $errorMsg = $_.Exception.Message
+                        $actionErrors += $errorMsg
+                        Write-Log "執行動作時發生錯誤: $errorMsg" "ERROR"
                     }
+                }
+            }
+            
+            # 發送通知（如果有設定 notificationUrl）
+            if ($repo.notificationUrl) {
+                if ($actionSuccess) {
+                    $title = "✅ $($repo.name) 更新成功"
+                    $message = "Repository: $($repo.name)`nBranch: $($repo.branch)`nCommit: $($result.CommitSha.Substring(0,7))`nAuthor: $($result.CommitAuthor)`nMessage: $($result.CommitMessage)"
+                    Send-Notification -NotificationUrl $repo.notificationUrl -Title $title -Message $message -Priority "default" -Tags @("white_check_mark")
+                } else {
+                    $title = "❌ $($repo.name) 更新失敗"
+                    $message = "Repository: $($repo.name)`nBranch: $($repo.branch)`nCommit: $($result.CommitSha.Substring(0,7))`n`n錯誤:`n$($actionErrors -join "`n")"
+                    Send-Notification -NotificationUrl $repo.notificationUrl -Title $title -Message $message -Priority "high" -Tags @("x")
                 }
             }
         }

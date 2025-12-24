@@ -9,6 +9,7 @@
 - ✅ 檢測到新 commit 時執行自訂動作
 - ✅ 首次監控時自動執行動作（建立基準）
 - ✅ 支援三種動作類型：命令、腳本、Webhook
+- ✅ 支援 ntfy.sh 通知（成功/失敗皆會通知）
 - ✅ 記錄執行歷史
 - ✅ 狀態持久化儲存
 - ✅ Debug 模式協助疑難排解
@@ -166,6 +167,40 @@ while ($true) {
   "actions": [...]
 }
 ```
+
+### 通知設定（可選）
+
+可以為每個 repository 設定 `notificationUrl`，當動作執行成功或失敗時，會自動發送通知。
+
+**注意**：目前僅支援不需要認證的通知服務（例如 ntfy.sh）。
+
+#### 使用 ntfy.sh
+
+ntfy.sh 是一個完全免費的通知服務，不需註冊和認證即可使用。
+
+```json
+{
+  "provider": "github",
+  "owner": "your-org",
+  "name": "your-repo",
+  "branch": "main",
+  "token": "ghp_xxxxx",
+  "notificationUrl": "https://ntfy.sh/your-unique-topic",
+  "actions": [...]
+}
+```
+
+**設定步驟：**
+
+1. 選擇一個獨特的 topic 名稱（例如：`myproject-ci-alerts`）
+2. 在手機上安裝 ntfy app（[Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy) / [iOS](https://apps.apple.com/app/ntfy/id1625396347)）
+3. 在 app 中訂閱你的 topic
+4. 完成！現在會收到推播通知
+
+**通知內容：**
+
+- ✅ **成功**：顯示 repository、分支、commit 資訊
+- ❌ **失敗**：顯示錯誤訊息，優先級較高
 
 ### 動作類型
 
