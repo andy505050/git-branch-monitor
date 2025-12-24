@@ -172,15 +172,6 @@ function Invoke-CustomAction {
             Write-Log "執行命令: $command"
             Invoke-Expression $command
         }
-        "script" {
-            if (Test-Path $ActionCommand) {
-                Write-Log "執行腳本: $ActionCommand"
-                & $ActionCommand -RepoName $RepoInfo.Name -Branch $RepoInfo.Branch -CommitSha $CommitInfo.CommitSha
-            }
-            else {
-                Write-Log "腳本檔案不存在: $ActionCommand" "ERROR"
-            }
-        }
         "webhook" {
             $body = @{
                 repo = $RepoInfo.Name

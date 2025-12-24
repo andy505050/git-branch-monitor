@@ -25,8 +25,8 @@
           "command": "https://your-webhook-url.com/notify"
         },
         {
-          "type": "script",
-          "command": "C:\\Path\\To\\Your\\deploy-script.ps1"
+          "type": "command",
+          "command": "& 'C:\\Path\\To\\Your\\deploy-script.ps1' -RepoName '${REPO_NAME}' -Branch '${BRANCH}' -CommitSha '${COMMIT_SHA}'"
         }
       ]
     }

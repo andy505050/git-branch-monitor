@@ -19,7 +19,7 @@
 - `git-branch-monitor-config.json` - 設定檔（定義要監控的 repositories）
 - `git-branch-monitor-config.example.json` - 範例設定檔（可複製此檔案開始設定）
 - `git-branch-monitor-state.json` - 狀態檔（自動產生，記錄最後檢查的 commit）
-- `git-branch-monitor.log` - 記錄檔（自動產生）
+- `logs/` - 記錄檔資料夾（自動產生，每天一個檔案，保留 3 天）
 
 ## 快速開始
 
@@ -169,7 +169,7 @@ while ($true) {
 
 ### 動作類型
 
-#### 1. Command - 執行 PowerShell 命令
+#### 1. Command - 執行命令或腳本
 
 ```json
 {
@@ -186,22 +186,16 @@ while ($true) {
 - `${COMMIT_MESSAGE}` - Commit 訊息
 - `${COMMIT_AUTHOR}` - Commit 作者
 
-#### 2. Script - 執行外部腳本
+執行外部腳本範例：
 
 ```json
 {
-  "type": "script",
-  "command": "C:\\Scripts\\deploy.ps1"
+  "type": "command",
+  "command": "& 'C:\\Scripts\\deploy.ps1' -RepoName '${REPO_NAME}' -Branch '${BRANCH}' -CommitSha '${COMMIT_SHA}'"
 }
 ```
 
-腳本會接收以下參數：
-
-- `-RepoName`
-- `-Branch`
-- `-CommitSha`
-
-#### 3. Webhook - 發送 HTTP POST 請求
+#### 2. Webhook - 發送 HTTP POST 請求
 
 ```json
 {
@@ -260,8 +254,8 @@ POST Body 格式：
       "token": "bitbucket-personal-access-token",
       "actions": [
         {
-          "type": "script",
-          "command": "C:\\Deploy\\deploy-api.ps1"
+          "type": "command",
+          "command": "& 'C:\\Deploy\\deploy-api.ps1' -RepoName '${REPO_NAME}' -Branch '${BRANCH}' -CommitSha '${COMMIT_SHA}'"
         },
         {
           "type": "webhook",
@@ -418,7 +412,11 @@ Webhook 會自動發送包含 commit 資訊的 JSON payload。
 1. **檢視詳細日誌**
 
    ```powershell
-   Get-Content .\git-branch-monitor.log -Tail 50
+   # 查看今天的日誌
+   Get-Content .\logs\git-branch-monitor-$(Get-Date -Format 'yyyy-MM-dd').log -Tail 50
+
+   # 或查看最新的日誌檔案
+   Get-Content (Get-ChildItem .\logs\*.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName -Tail 50
    ```
 
 2. **測試 API 連線（使用 Debug 模式）**
@@ -449,7 +447,7 @@ Webhook 會自動發送包含 commit 資訊的 JSON payload。
 
 ## 記錄檔位置
 
-- 執行記錄：`git-branch-monitor.log`
+- 執行記錄：`logs/git-branch-monitor-YYYY-MM-DD.log`（每天一個檔案，自動保留 3 天）
 - 狀態檔案：`git-branch-monitor-state.json`
 
 ## 授權
