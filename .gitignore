@@ -4,7 +4,6 @@ git-branch-monitor-config*.json
 
 # 執行時狀態檔案
 git-branch-monitor-state.json
-git-branch-monitor.log
 
 # Windows 系統檔案
 Thumbs.db
@@ -12,3 +11,6 @@ Desktop.ini
 
 # PowerShell 相關
 *.ps1.bak
+
+# logs 資料夾
+logs/

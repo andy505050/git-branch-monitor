@@ -22,9 +22,24 @@ function Write-Log {
         Write-Host $logMessage
     }
     
-    # 寫入記錄檔
-    $logPath = "$PSScriptRoot\git-branch-monitor.log"
+    # 寫入記錄檔（每天一個檔案）
+    $logDir = "$PSScriptRoot\logs"
+    if (-not (Test-Path $logDir)) {
+        New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    }
+    $logDate = Get-Date -Format "yyyy-MM-dd"
+    $logPath = "$logDir\git-branch-monitor-$logDate.log"
     Add-Content -Path $logPath -Value $logMessage
+    
+    # 清理超過 3 天的舊 log 檔案
+    $keepDays = 3
+    $cutoffDate = (Get-Date).AddDays(-$keepDays)
+    Get-ChildItem -Path $logDir -Filter "git-branch-monitor-*.log" | Where-Object {
+        $_.LastWriteTime -lt $cutoffDate
+    } | ForEach-Object {
+        Remove-Item $_.FullName -Force
+        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [INFO] 已刪除舊 log 檔案: $($_.Name)"
+    }
 }
 
 # 取得 GitHub 分支最新 commit
