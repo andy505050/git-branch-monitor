@@ -449,10 +449,19 @@ function Start-GitMonitor {
                     Send-Notification -NotificationUrl $repo.notificationUrl -Title $title -Message $message -Priority "high" -Tags @("x")
                 }
             }
+            
+            # 只有在動作成功執行時才更新狀態
+            if ($actionSuccess) {
+                $state[$repoKey] = $currentCommitSha
+                Write-Log "狀態已更新: $repoKey -> $currentCommitSha" "DEBUG"
+            } else {
+                Write-Log "因動作執行失敗，不更新狀態" "WARN"
+            }
         }
-        
-        # 更新狀態
-        $state[$repoKey] = $currentCommitSha
+        else {
+            # 無新版本時也更新狀態（確保首次監控後的狀態正確）
+            $state[$repoKey] = $currentCommitSha
+        }
     }
     
     # 儲存狀態
