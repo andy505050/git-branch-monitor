@@ -395,6 +395,13 @@ function Start-GitMonitor {
         }
 
         if ($shouldRunAction) {
+            # 發送準備更新通知（如果有設定 notificationUrl）
+            if ($repo.notificationUrl) {
+                $title = "🔄 $($repo.name) 發現新版本，準備更新"
+                $message = "Repository: $($repo.name)`nBranch: $($repo.branch)`nNew Commit: $($result.CommitSha.Substring(0,7))`nAuthor: $($result.CommitAuthor)`nMessage: $($result.CommitMessage)"
+                Send-Notification -NotificationUrl $repo.notificationUrl -Title $title -Message $message -Priority "default" -Tags @("arrows_counterclockwise")
+            }
+            
             # 如果有新版本且設定了本地路徑，執行 git pull
             if ($repo.localPath -and (Test-Path "$($repo.localPath)\.git")) {
                 try {
