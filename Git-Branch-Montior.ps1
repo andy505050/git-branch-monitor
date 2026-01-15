@@ -342,6 +342,8 @@ function Start-GitMonitor {
                 }
                 catch {
                     Write-Log "Git 操作發生錯誤: $_" "ERROR"
+                    Pop-Location
+                    continue
                 }
                 finally {
                     Pop-Location
@@ -431,12 +433,15 @@ function Start-GitMonitor {
                         Write-Log "Git pull 成功: $pullOutput" "INFO"
                     } else {
                         Write-Log "Git pull 失敗: $pullOutput" "ERROR"
+                        Pop-Location
+                        continue
                     }
                     Pop-Location
                 }
                 catch {
                     Write-Log "Git pull 發生錯誤: $_" "ERROR"
                     Pop-Location
+                    continue
                 }
             }
             
