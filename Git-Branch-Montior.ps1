@@ -407,6 +407,25 @@ function Start-GitMonitor {
                 try {
                     Write-Log "執行 git pull 更新到最新版本"
                     Push-Location $repo.localPath
+                    
+                    # 如果有 token，更新 remote URL 以包含認證資訊
+                    if ($repo.token) {
+                        $remoteUrl = ""
+                        switch ($repo.provider) {
+                            "github" {
+                                $remoteUrl = "https://$($repo.token)@github.com/$($repo.owner)/$($repo.name).git"
+                            }
+                            "bitbucket" {
+                                $remoteUrl = "https://x-token-auth:$($repo.token)@bitbucket.org/$($repo.workspace)/$($repo.name).git"
+                            }
+                        }
+                        
+                        if ($remoteUrl) {
+                            Write-Log "更新 remote URL 以包含認證資訊" "DEBUG"
+                            git remote set-url origin $remoteUrl 2>&1 | Out-Null
+                        }
+                    }
+                    
                     $pullOutput = git pull 2>&1
                     if ($LASTEXITCODE -eq 0) {
                         Write-Log "Git pull 成功: $pullOutput" "INFO"
