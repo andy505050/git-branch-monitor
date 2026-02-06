@@ -10,6 +10,7 @@
 - ✅ 首次監控時自動執行動作（建立基準）
 - ✅ 支援三種動作類型：命令、腳本、Webhook
 - ✅ 支援 ntfy.sh 通知（成功/失敗皆會通知）
+- ✅ 智慧錯誤處理：失敗最多記錄 3 次後自動跳過，成功時清除錯誤記錄
 - ✅ 記錄執行歷史
 - ✅ 狀態持久化儲存
 - ✅ Debug 模式協助疑難排解
@@ -19,7 +20,7 @@
 - `Git-Branch-Montior.ps1` - 主要監控腳本
 - `git-branch-monitor-config.json` - 設定檔（定義要監控的 repositories）
 - `git-branch-monitor-config.example.json` - 範例設定檔（可複製此檔案開始設定）
-- `git-branch-monitor-state.json` - 狀態檔（自動產生，記錄最後檢查的 commit）
+- `git-branch-monitor-state.json` - 狀態檔（自動產生，記錄最後檢查的 commit、失敗次數及錯誤資訊）
 - `logs/` - 記錄檔資料夾（自動產生，每天一個檔案，保留 3 天）
 
 ## 快速開始
@@ -137,6 +138,98 @@ while ($true) {
 ```
 
 這在測試動作設定或確保定期執行某些任務時很有用。
+
+## 錯誤處理機制
+
+當動作執行失敗時，腳本會自動記錄失敗資訊並實施智慧重試策略：
+
+### 失敗處理流程
+
+1. **第一次失敗**
+   - 記錄錯誤訊息和失敗時間
+   - 失敗次數 +1（共 1/3）
+   - **不更新** commit SHA（下次仍會嘗試部署相同版本）
+   - 發送失敗通知（如有設定）
+
+2. **第二、三次失敗**
+   - 繼續記錄錯誤資訊
+   - 失敗次數累加（2/3、3/3）
+   - 仍然不更新 commit SHA
+   - 發送失敗通知顯示累計次數
+
+3. **達到最大失敗次數（3 次）**
+   - 如果仍是**相同的 commit**：
+     - 自動跳過該 repository 的動作執行
+     - 在日誌中記錄警告訊息
+     - 顯示最後的錯誤訊息和失敗時間
+   - 如果偵測到**新的 commit**：
+     - 🔄 **自動重置失敗次數為 0**
+     - 清除錯誤記錄
+     - 像處理新版本一樣重新嘗試執行動作
+     - 給予每個新版本獨立的重試機會
+
+4. **成功執行**
+   - 更新 commit SHA 到最新版本
+   - **清除所有失敗記錄**（重置為 0/3）
+   - 發送成功通知
+
+### 狀態檔案結構
+
+新版本的狀態檔 `git-branch-monitor-state.json` 包含：
+
+```json
+{
+  "github:my-app:main": {
+    "commitSha": "a1b2c3d4e5f6...",
+    "failureCount": 0,
+    "lastError": null,
+    "lastFailureTime": null
+  },
+  "bitbucket:api-service:develop": {
+    "commitSha": "9z8y7x6w5v4u...",
+    "failureCount": 2,
+    "lastError": "執行動作時發生錯誤: 找不到檔案 'deploy.ps1'",
+    "lastFailureTime": "2026-02-06 14:30:45"
+  }
+}
+```
+
+**欄位說明：**
+
+- `commitSha` - 最後成功處理的 commit SHA
+- `failureCount` - 連續失敗次數（0-3）
+- `lastError` - 最後一次的錯誤訊息
+- `lastFailureTime` - 最後失敗的時間
+
+**向後相容性：** 舊版本的狀態檔（僅包含 commit SHA 字串）會自動轉換為新格式，無需手動處理。
+
+### 智慧重試機制
+
+系統會自動判斷是否給予新的執行機會：
+
+- **相同版本連續失敗**：某個 commit 失敗 3 次後，不再重試該版本
+- **新版本自動重試**：當開發者推送新的 commit 時，自動重置失敗計數
+- **獨立計數**：每個新 commit 都有獨立的 3 次重試機會
+
+**範例情境：**
+
+```
+commit A → 失敗 3 次 → 停止重試 commit A
+commit B 推送 → 自動重置為 0/3 → 開始嘗試 commit B
+commit B → 成功 → 清除所有失敗記錄 ✅
+```
+
+### 手動重置失敗記錄
+
+在某些情況下，你可能需要手動重置（例如修復了部署環境問題，但 repository 沒有新 commit）：
+
+```powershell
+# 方法 1：刪除整個狀態檔（所有 repositories 都會視為首次監控）
+Remove-Item .\git-branch-monitor-state.json
+
+# 方法 2：手動編輯狀態檔，將特定 repository 的 failureCount 改為 0
+# 或直接刪除該 repository 的記錄
+```
 
 ## 設定檔格式
 
@@ -490,6 +583,14 @@ Webhook 會自動發送包含 commit 資訊的 JSON payload。
 MIT License
 
 ## 版本歷史
+
+- v1.1 (2026-02-06) - 錯誤處理改進
+  - 新增智慧失敗處理機制
+  - 失敗最多記錄 3 次後自動跳過
+  - 成功時自動清除錯誤記錄 - **智慧重試**：偵測到新 commit 時自動重置失敗次數
+  - 每個新版本都有獨立的重試機會 - 改進狀態檔結構（包含失敗次數、錯誤訊息、失敗時間）
+  - 向後相容舊版狀態檔格式
+  - 通知訊息顯示失敗次數進度
 
 - v1.0 (2025-12-16) - 初始版本
   - 支援 GitHub 和 Bitbucket

@@ -371,9 +371,50 @@ function Start-GitMonitor {
             continue
         }
         
-        # 檢查是否有新版本，首次監控也執行動作
-        $lastCommitSha = $state[$repoKey]
+        # 讀取上次狀態（支援舊格式和新格式）
+        $lastState = $state[$repoKey]
+        $lastCommitSha = $null
+        $failureCount = 0
+        $lastError = $null
+        $lastFailureTime = $null
+
+        if ($lastState) {
+            if ($lastState -is [string]) {
+                # 舊格式：直接是 commit SHA
+                $lastCommitSha = $lastState
+                Write-Log "偵測到舊格式狀態，將自動轉換為新格式" "DEBUG"
+            } else {
+                # 新格式：包含詳細資訊的物件
+                $lastCommitSha = $lastState.commitSha
+                $failureCount = if ($lastState.failureCount) { $lastState.failureCount } else { 0 }
+                $lastError = $lastState.lastError
+                $lastFailureTime = $lastState.lastFailureTime
+            }
+        }
+
         $currentCommitSha = $result.CommitSha
+
+        # 檢查失敗次數是否超過限制
+        if ($failureCount -ge 3) {
+            # 如果有新的 commit，重置失敗次數並給予新機會
+            if ($lastCommitSha -ne $currentCommitSha) {
+                Write-Log "偵測到新的 commit ($($currentCommitSha.Substring(0,7)))，與上次失敗的版本不同，重置失敗次數並重新嘗試" "INFO"
+                $failureCount = 0
+                $lastError = $null
+                $lastFailureTime = $null
+            } else {
+                Write-Log "此 repository 已連續失敗 $failureCount 次，且無新版本，跳過執行動作" "WARN"
+                if ($lastError) {
+                    Write-Log "最後錯誤: $lastError" "WARN"
+                }
+                if ($lastFailureTime) {
+                    Write-Log "最後失敗時間: $lastFailureTime" "WARN"
+                }
+                continue
+            }
+        }
+        
+        # 檢查是否有新版本，首次監控也執行動作
         $shouldRunAction = $false
 
         if (-not $lastCommitSha) {
@@ -475,23 +516,46 @@ function Start-GitMonitor {
                     $message = "Repository: $($repo.name)`nBranch: $($repo.branch)`nCommit: $($result.CommitSha.Substring(0,7))`nAuthor: $($result.CommitAuthor)`nMessage: $($result.CommitMessage)"
                     Send-Notification -NotificationUrl $repo.notificationUrl -Title $title -Message $message -Priority "default" -Tags @("white_check_mark")
                 } else {
-                    $title = "❌ $($repo.name) 更新失敗"
-                    $message = "Repository: $($repo.name)`nBranch: $($repo.branch)`nCommit: $($result.CommitSha.Substring(0,7))`n`n錯誤:`n$($actionErrors -join "`n")"
+                    $newFailureCount = $failureCount + 1
+                    $title = "❌ $($repo.name) 更新失敗 ($newFailureCount/3)"
+                    $message = "Repository: $($repo.name)`nBranch: $($repo.branch)`nCommit: $($result.CommitSha.Substring(0,7))`n失敗次數: $newFailureCount / 3`n`n錯誤:`n$($actionErrors -join "`n")"
                     Send-Notification -NotificationUrl $repo.notificationUrl -Title $title -Message $message -Priority "high" -Tags @("x")
                 }
             }
             
-            # 只有在動作成功執行時才更新狀態
+            # 根據執行結果更新狀態
             if ($actionSuccess) {
-                $state[$repoKey] = $currentCommitSha
-                Write-Log "狀態已更新: $repoKey -> $currentCommitSha" "DEBUG"
+                # 成功：更新狀態並清除失敗記錄
+                $state[$repoKey] = @{
+                    commitSha = $currentCommitSha
+                    failureCount = 0
+                    lastError = $null
+                    lastFailureTime = $null
+                }
+                Write-Log "狀態已更新: $repoKey -> $currentCommitSha，失敗記錄已清除" "DEBUG"
             } else {
-                Write-Log "因動作執行失敗，不更新狀態" "WARN"
+                # 失敗：增加失敗次數並記錄錯誤，但不更新 commitSha
+                $failureCount++
+                $state[$repoKey] = @{
+                    commitSha = $lastCommitSha
+                    failureCount = $failureCount
+                    lastError = ($actionErrors -join "; ")
+                    lastFailureTime = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+                }
+                Write-Log "動作執行失敗，失敗次數: $failureCount / 3" "WARN"
+                if ($failureCount -ge 3) {
+                    Write-Log "已達到最大失敗次數，下次檢查將跳過此 repository" "ERROR"
+                }
             }
         }
         else {
-            # 無新版本時也更新狀態（確保首次監控後的狀態正確）
-            $state[$repoKey] = $currentCommitSha
+            # 無新版本時也更新狀態（確保首次監控後的狀態正確），並保持失敗計數為 0
+            $state[$repoKey] = @{
+                commitSha = $currentCommitSha
+                failureCount = 0
+                lastError = $null
+                lastFailureTime = $null
+            }
         }
     }
     
