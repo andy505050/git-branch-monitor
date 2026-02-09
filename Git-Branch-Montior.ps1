@@ -446,6 +446,8 @@ function Start-GitMonitor {
             }
             
             # 如果有新版本且設定了本地路徑，執行 git pull
+            $pullSuccess = $true
+            $pullError = $null
             if ($repo.localPath -and (Test-Path "$($repo.localPath)\.git")) {
                 try {
                     Write-Log "執行 git pull 更新到最新版本"
@@ -473,17 +475,42 @@ function Start-GitMonitor {
                     if ($LASTEXITCODE -eq 0) {
                         Write-Log "Git pull 成功: $pullOutput" "INFO"
                     } else {
-                        Write-Log "Git pull 失敗: $pullOutput" "ERROR"
-                        Pop-Location
-                        continue
+                        $pullSuccess = $false
+                        $pullError = "Git pull 失敗: $pullOutput"
+                        Write-Log $pullError "ERROR"
                     }
                     Pop-Location
                 }
                 catch {
-                    Write-Log "Git pull 發生錯誤: $_" "ERROR"
+                    $pullSuccess = $false
+                    $pullError = "Git pull 發生錯誤: $_"
+                    Write-Log $pullError "ERROR"
                     Pop-Location
-                    continue
                 }
+            }
+            
+            # 如果 git pull 失敗，記錄失敗狀態並發送通知
+            if (-not $pullSuccess) {
+                $failureCount++
+                $state[$repoKey] = @{
+                    commitSha = $lastCommitSha
+                    failureCount = $failureCount
+                    lastError = $pullError
+                    lastFailureTime = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+                }
+                
+                # 發送失敗通知
+                if ($repo.notificationUrl) {
+                    $title = "❌ $($repo.name) Git Pull 失敗 ($failureCount/3)"
+                    $message = "Repository: $($repo.name)`nBranch: $($repo.branch)`nCommit: $($result.CommitSha.Substring(0,7))`n失敗次數: $failureCount / 3`n`n錯誤:`n$pullError"
+                    Send-Notification -NotificationUrl $repo.notificationUrl -Title $title -Message $message -Priority "high" -Tags @("x")
+                }
+                
+                Write-Log "Git pull 失敗，失敗次數: $failureCount / 3" "WARN"
+                if ($failureCount -ge 3) {
+                    Write-Log "已達到最大失敗次數，下次檢查將跳過此 repository" "ERROR"
+                }
+                continue
             }
             
             # 執行自訂動作
