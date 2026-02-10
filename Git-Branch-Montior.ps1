@@ -218,7 +218,29 @@ function Invoke-CustomAction {
                 -replace '\$\{COMMIT_AUTHOR\}', $CommitInfo.CommitAuthor
             
             Write-Log "執行命令: $command"
-            Invoke-Expression $command
+            
+            # 執行命令並捕捉輸出與錯誤
+            try {
+                $output = Invoke-Expression $command 2>&1
+                
+                # 檢查退出碼
+                if ($LASTEXITCODE -ne 0 -and $null -ne $LASTEXITCODE) {
+                    Write-Log "命令執行失敗，退出碼: $LASTEXITCODE" "ERROR"
+                    if ($output) {
+                        Write-Log "命令輸出: $output" "ERROR"
+                    }
+                    throw "命令執行失敗，退出碼: $LASTEXITCODE"
+                }
+                
+                # 記錄輸出
+                if ($output) {
+                    Write-Log "命令輸出: $output" "DEBUG"
+                }
+            }
+            catch {
+                Write-Log "命令執行時發生異常: $_" "ERROR"
+                throw
+            }
         }
         "webhook" {
             $body = @{
@@ -231,10 +253,45 @@ function Invoke-CustomAction {
             } | ConvertTo-Json
             
             Write-Log "發送 Webhook: $ActionCommand"
-            Invoke-RestMethod -Uri $ActionCommand -Method Post -Body $body -ContentType "application/json"
+            Write-Log "Webhook 內容: $body" "DEBUG"
+            
+            # 發送 Webhook 並處理錯誤
+            try {
+                $response = Invoke-RestMethod -Uri $ActionCommand -Method Post -Body $body -ContentType "application/json" -ErrorAction Stop
+                
+                Write-Log "Webhook 發送成功" "DEBUG"
+                if ($response) {
+                    Write-Log "Webhook 回應: $($response | ConvertTo-Json -Compress)" "DEBUG"
+                }
+            }
+            catch {
+                $errorMsg = $_.Exception.Message
+                
+                # 如果有 HTTP 回應，記錄詳細資訊
+                if ($_.Exception.Response) {
+                    $statusCode = $_.Exception.Response.StatusCode.value__
+                    Write-Log "Webhook HTTP 狀態碼: $statusCode" "ERROR"
+                    
+                    # 嘗試讀取錯誤回應內容
+                    try {
+                        $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+                        $responseBody = $reader.ReadToEnd()
+                        $reader.Close()
+                        Write-Log "Webhook 錯誤回應: $responseBody" "ERROR"
+                        $errorMsg = "HTTP $statusCode - $responseBody"
+                    }
+                    catch {
+                        $errorMsg = "HTTP $statusCode - $errorMsg"
+                    }
+                }
+                
+                Write-Log "Webhook 發送失敗: $errorMsg" "ERROR"
+                throw "Webhook 發送失敗: $errorMsg"
+            }
         }
         default {
             Write-Log "未知的動作類型: $ActionType" "ERROR"
+            throw "未知的動作類型: $ActionType"
         }
     }
 }
