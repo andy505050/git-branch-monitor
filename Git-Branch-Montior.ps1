@@ -219,8 +219,14 @@ function Invoke-CustomAction {
             
             Write-Log "執行命令: $command"
             
+            # 將非終止性錯誤轉為例外，才能偵測命令執行失敗
+            $previousErrorActionPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Stop'
+            
             # 執行命令並捕捉輸出與錯誤
             try {
+                # 清除前一個指令殘留的退出碼（使用 $global: 避免變數遮蔽導致誤判）
+                $global:LASTEXITCODE = 0
                 $output = Invoke-Expression $command 2>&1
                 
                 # 檢查退出碼
@@ -240,6 +246,9 @@ function Invoke-CustomAction {
             catch {
                 Write-Log "命令執行時發生異常: $_" "ERROR"
                 throw
+            }
+            finally {
+                $ErrorActionPreference = $previousErrorActionPreference
             }
         }
         "webhook" {
@@ -486,6 +495,10 @@ function Start-GitMonitor {
             Write-Log "  作者: $($result.CommitAuthor)" "INFO"
             $shouldRunAction = $true
         }
+        elseif ($failureCount -gt 0) {
+            Write-Log "上次執行失敗 (失敗次數: $failureCount / 3)，重新嘗試執行動作" "INFO"
+            $shouldRunAction = $true
+        }
         elseif ($AlwaysRunActions) {
             Write-Log "無新版本，但已啟用 AlwaysRunActions，仍執行動作" "INFO"
             $shouldRunAction = $true
@@ -550,7 +563,7 @@ function Start-GitMonitor {
             if (-not $pullSuccess) {
                 $failureCount++
                 $state[$repoKey] = @{
-                    commitSha = $lastCommitSha
+                    commitSha = $currentCommitSha
                     failureCount = $failureCount
                     lastError = $pullError
                     lastFailureTime = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
@@ -589,6 +602,8 @@ function Start-GitMonitor {
                         $errorMsg = $_.Exception.Message
                         $actionErrors += $errorMsg
                         Write-Log "執行動作時發生錯誤: $errorMsg" "ERROR"
+                        Write-Log "動作執行失敗，跳過剩餘動作" "WARN"
+                        break
                     }
                 }
             }
@@ -618,10 +633,10 @@ function Start-GitMonitor {
                 }
                 Write-Log "狀態已更新: $repoKey -> $currentCommitSha，失敗記錄已清除" "DEBUG"
             } else {
-                # 失敗：增加失敗次數並記錄錯誤，但不更新 commitSha
+                # 失敗：記錄失敗的版本與失敗次數，後續週期會重試，直到 3 次後跳過
                 $failureCount++
                 $state[$repoKey] = @{
-                    commitSha = $lastCommitSha
+                    commitSha = $currentCommitSha
                     failureCount = $failureCount
                     lastError = ($actionErrors -join "; ")
                     lastFailureTime = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
